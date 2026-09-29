@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
+    <title>Satoshi Social Club</title>
+    <!-- The `react-native-web` recommended style reset: https://necolas.github.io/react-native-web/docs/setup/#root-element -->
+    <style id="expo-reset">
+      /* These styles make the body full-height */
+      html,
+      body {
+        height: 100%;
+      }
+      /* These styles disable body scrolling if you are using <ScrollView> */
+      body {
+        overflow: hidden;
+      }
+      /* These styles make the root element full-height */
+      #root {
+        display: flex;
+        height: 100%;
+        flex: 1;
+      }
+    </style>
+  <link rel="icon" href="/satoshi-social-club/favicon.ico"/><link rel="preload" href="/satoshi-social-club/_expo/static/css/web-fc6284c641c229251b0de96d38cb09d8.css" as="style">
+<link rel="stylesheet" href="/satoshi-social-club/_expo/static/css/web-fc6284c641c229251b0de96d38cb09d8.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Satoshi Club" />
+    <meta name="application-name" content="Satoshi Social Club" />
+    <meta name="theme-color" content="#0A0806" />
+    <meta name="color-scheme" content="dark" />
+    <link rel="manifest" href="manifest.json" />
+    <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
+    <style>
+      html, body, #root { background-color: #0A0806; height: 100%; }
+      body { margin: 0; overscroll-behavior-y: none; -webkit-tap-highlight-color: transparent; }
+      #root { -webkit-user-select: none; user-select: none; }
+    </style>
+    <style>
+      html.club-shim { height: var(--club-height) !important; overscroll-behavior: none; }
+      html.club-shim, html.club-shim body { overflow: visible; }
+      html.club-shim body > div:not([id]):not([style]) > div {
+        bottom: auto !important;
+        height: var(--club-height) !important;
+      }
+    </style>
+    <script>
+      (function () {
+        var pageHeight = function pageHeight(
+  standalone,
+  screenWidth,
+  screenHeight,
+  innerWidth,
+  innerHeight,
+  orientation,
+) {
+  if (standalone !== true) return 0;
+  const sizes = [screenWidth, screenHeight, innerWidth, innerHeight];
+  for (let i = 0; i < sizes.length; i++) {
+    if (typeof sizes[i] !== 'number' || !isFinite(sizes[i]) || sizes[i] <= 0) return 0;
+  }
+  // iOS donne les dimensions de l'écran en portrait, quelle que soit
+  // l'orientation : on les remet dans le bon sens. L'orientation vient de
+  // l'écran quand il la donne — pas des proportions de la fenêtre, qu'un
+  // clavier ouvert rend plus large que haute en plein portrait.
+  const landscape =
+    orientation === 'landscape' || (orientation !== 'portrait' && innerWidth > innerHeight);
+  const fullWidth = landscape
+    ? Math.max(screenWidth, screenHeight)
+    : Math.min(screenWidth, screenHeight);
+  const fullHeight = landscape
+    ? Math.min(screenWidth, screenHeight)
+    : Math.max(screenWidth, screenHeight);
+  if (Math.abs(fullWidth - innerWidth) > 1) return 0;
+  const gap = fullHeight - innerHeight;
+  if (gap < -1 || gap > 100) return -1;
+  return Math.round(fullHeight);
+};
+        var root = document.documentElement;
+        var probe = null;
+        var fits = 0;
+        var toggles = 0;
+        var frozen = false;
+        function probeHeight() {
+          if (!probe && document.body) {
+            probe = document.createElement('div');
+            probe.id = 'club-viewport-probe';
+            probe.setAttribute('aria-hidden', 'true');
+            probe.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:100%;visibility:hidden;pointer-events:none';
+            document.body.appendChild(probe);
+          }
+          return probe ? Math.round(probe.getBoundingClientRect().height) : null;
+        }
+        function orientation() {
+          var type = screen.orientation && screen.orientation.type;
+          if (type) return type.indexOf('landscape') === 0 ? 'landscape' : 'portrait';
+          if (typeof window.orientation === 'number') return Math.abs(window.orientation) === 90 ? 'landscape' : 'portrait';
+          return '';
+        }
+        function fit() {
+          var height = pageHeight(navigator.standalone, screen.width, screen.height, innerWidth, innerHeight, orientation());
+          if (height !== -1) {
+            var wanted = height > 0 ? height + 'px' : '';
+            if (root.style.getPropertyValue('--club-height') !== wanted) {
+              if (toggles >= 4) {
+                frozen = true;
+              } else {
+                toggles += 1;
+                if (height > 0) {
+                  root.style.setProperty('--club-height', wanted);
+                  root.classList.add('club-shim');
+                } else {
+                  root.style.removeProperty('--club-height');
+                  root.classList.remove('club-shim');
+                }
+              }
+            }
+          }
+          fits += 1;
+          var applied = parseInt(root.style.getPropertyValue('--club-height'), 10) || 0;
+          window.__clubViewport = {
+            standalone: navigator.standalone === true,
+            screen: screen.height, inner: innerHeight, layout: probeHeight(),
+            gap: applied ? Math.max(0, applied - innerHeight) : 0,
+            height: applied, fits: fits, toggles: toggles, frozen: frozen
+          };
+          if (root.classList.contains('club-shim') && window.scrollY !== 0) window.scrollTo(0, 0);
+        }
+        fit();
+        document.addEventListener('DOMContentLoaded', fit);
+        addEventListener('load', function () {
+          fit();
+          [150,600,1500,3000].forEach(function (ms) { setTimeout(fit, ms); });
+        });
+        addEventListener('resize', fit);
+        addEventListener('pageshow', fit);
+        addEventListener('orientationchange', function () { setTimeout(fit, 300); });
+        document.addEventListener('visibilitychange', function () {
+          if (document.visibilityState === 'visible') { toggles = 0; frozen = false; }
+          fit();
+        });
+        addEventListener('scroll', function () {
+          if (root.classList.contains('club-shim') && window.scrollY !== 0) window.scrollTo(0, 0);
+        }, { passive: true });
+      })();
+    </script>
+
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function () {
+          navigator.serviceWorker.register('sw.js').catch(function () {});
+        });
+      }
+    </script>
+</head>
+
+  <body>
+    <!-- Use static rendering with Expo Router to support running without JavaScript. -->
+    <noscript>
+      You need to enable JavaScript to run this app.
+    </noscript>
+    <!-- The root element for your Expo app. -->
+    <div id="root"></div>
+  <script src="/satoshi-social-club/_expo/static/js/web/entry-63b0549270b0d75af54fb0d894205dc7.js" defer></script>
+
+    <div id="boot" aria-label="Chargement" role="progressbar">
+      <img id="boot-logo" src="icon-512.png" alt="" width="240" height="240" />
+      <div id="boot-chain">
+        <div class="boot-row"><i class="boot-b"><b></b><b></b></i><u class="boot-b"></u><i class="boot-b"><b></b><b></b></i><u class="boot-b"></u><i class="boot-b"><b></b><b></b></i><u class="boot-b"></u><i class="boot-b"><b></b><b></b></i><u class="boot-b"></u><i class="boot-b"><b></b><b></b></i><u class="boot-b"></u><i class="boot-b"><b></b><b></b></i><u class="boot-b"></u><i class="boot-b"><b></b><b></b></i><u class="boot-b"></u><i class="boot-b"><b></b><b></b></i></div>
+        <div id="boot-fill"><div class="boot-row"><i class="boot-b on"><b></b><b></b></i><u class="boot-b on"></u><i class="boot-b on"><b></b><b></b></i><u class="boot-b on"></u><i class="boot-b on"><b></b><b></b></i><u class="boot-b on"></u><i class="boot-b on"><b></b><b></b></i><u class="boot-b on"></u><i class="boot-b on"><b></b><b></b></i><u class="boot-b on"></u><i class="boot-b on"><b></b><b></b></i><u class="boot-b on"></u><i class="boot-b on"><b></b><b></b></i><u class="boot-b on"></u><i class="boot-b on"><b></b><b></b></i></div></div>
+      </div>
+      <p id="boot-label">MINAGE EN COURS</p>
+    </div>
+    <style>
+      #boot {
+        position: fixed; inset: 0; z-index: 9999;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        gap: 26px; background: #0A0806;
+        transition: opacity .25s ease-out;
+      }
+      #boot.done { opacity: 0; pointer-events: none; }
+      /* Le sceau d'abord : 60 % de la largeur, 240 px au plus. L'image de
+         512 px reste nette sur un écran Retina à cette taille. */
+      #boot-logo { width: min(60vw, 240px); height: auto; aspect-ratio: 1; }
+      #boot-chain { position: relative; }
+      /* « width: max-content » et « flex: none » ensemble : sans eux, les
+         blocs du calque doré se compriment dans la largeur animée au lieu
+         d'être découpés par elle, et la chaîne se remplit de tranches au lieu
+         de blocs. Le défaut ne se voit qu'une fois l'animation lancée.
+         (Pas de guillemets obliques ici : on est dans un gabarit de chaîne.) */
+      .boot-row { display: flex; align-items: center; width: max-content; }
+      /* Le bloc. */
+      .boot-b {
+        flex: none; box-sizing: border-box;
+        width: 16px; height: 16px; border-radius: 2px;
+        border: 1px solid #3A2F1E;
+        display: flex; flex-direction: column; justify-content: center; gap: 2px;
+        padding: 0 3px;
+      }
+      /* Les deux lignes de données à l'intérieur. */
+      .boot-b b { display: block; height: 1px; background: #3A2F1E; }
+      .boot-b b:last-child { width: 60%; }
+      /* Le maillon vers le bloc suivant. */
+      u.boot-b {
+        width: 8px; height: 2px; border: 0; border-radius: 1px;
+        background: #3A2F1E; padding: 0;
+      }
+      .boot-b.on { border-color: #E8903D; background: #E8903D; }
+      .boot-b.on b { background: #0A0806; }
+      u.boot-b.on { background: #E8903D; }
+      /* Le remplissage est un calque découpé qui s'élargit par paliers. */
+      #boot-fill {
+        position: absolute; inset: 0; overflow: hidden; width: 0;
+        animation: boot-mine 1650ms steps(1, end) infinite;
+      }
+      @keyframes boot-mine {
+        0.00% { width: 0px; }
+        9.09% { width: 16px; }
+        18.18% { width: 40px; }
+        27.27% { width: 64px; }
+        36.36% { width: 88px; }
+        45.45% { width: 112px; }
+        54.55% { width: 136px; }
+        63.64% { width: 160px; }
+        72.73% { width: 184px; }
+        100% { width: 184px; }
+      }
+      #boot-label {
+        margin: 0; color: #6D6455;
+        /* La police système : Inter n'est pas encore chargée à ce stade, et ses
+           capitales espacées ressemblent à celles d'Inter. */
+        font: 500 9px/1 -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+        letter-spacing: 2.2px;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        /* Sans mouvement, la chaîne reste pleine : elle dit encore « ça
+           travaille » sans imposer une animation à qui n'en veut pas. */
+        #boot-fill { animation: none; width: 184px; }
+      }
+    </style>
+</body>
+</html>
