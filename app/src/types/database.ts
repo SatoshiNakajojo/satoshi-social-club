@@ -1,0 +1,239 @@
+/**
+ * Types de la base — miroir de `supabase/migrations/*_init.sql`.
+ *
+ * En production, régénérer plutôt que d'éditer à la main :
+ *   npx supabase gen types typescript --project-id <ref> > src/types/database.ts
+ * Le fichier est écrit ici pour que l'app typecheck avant même qu'un projet
+ * Supabase existe.
+ */
+
+export type AssetClassRow = 'BTC' | 'ALT' | 'ACTION' | 'ETF' | 'DEGEN';
+export type VoteSide = 'bull' | 'bear';
+
+export type ProfileRow = {
+  id: string;
+  display_name: string;
+  initials: string;
+  color: string;
+  /** Photo de profil, dans le bucket `avatars`. */
+  avatar_url: string | null;
+  /** `[{"label":"GitHub","url":"https://…"}]` — relu par `parseLinks`. */
+  links: unknown;
+  created_at: string;
+};
+
+export type EventRow = {
+  id: string;
+  starts_at: string;
+  title: string;
+  location: string;
+  /** Crypto Night, Stock Night… une soirée peut en porter plusieurs. */
+  themes: string[];
+  created_by: string;
+  created_at: string;
+  /** Posée par la base (migration `20260930090000_edit_nights`). */
+  edited_at: string | null;
+};
+
+export type EventAttendeeRow = {
+  event_id: string;
+  user_id: string;
+  created_at: string;
+};
+
+export type PotluckItemRow = {
+  id: string;
+  event_id: string;
+  item_name: string;
+  assigned_user_id: string | null;
+  position: number;
+  /** Migration `20261008090000_potluck_member_lines`. */
+  added_by?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/** « Viens pas » à une soirée (migration `20261010090000_event_declines`). */
+export type EventDeclineRow = {
+  event_id: string;
+  user_id: string;
+  created_at: string;
+};
+
+/** Exception au cours live, accordée par le club (migration `20261009090000_entry_waivers`). */
+export type EntryWaiverRow = {
+  id: string;
+  user_id: string;
+  symbol: string;
+  reason: string;
+  max_days_back: number;
+  granted_at: string;
+  used_at: string | null;
+  ticker_id: string | null;
+};
+
+/** Contre-proposition de lieu (migration `20261003090000_event_proposals`). */
+export type EventProposalRow = {
+  id: string;
+  event_id: string;
+  user_id: string;
+  location: string;
+  comment: string;
+  status: 'open' | 'adopted' | 'rejected';
+  created_at: string;
+  decided_at: string | null;
+};
+
+export type EventProposalVoteRow = {
+  proposal_id: string;
+  user_id: string;
+  event_id: string;
+  choice: 'for' | 'against';
+  created_at: string;
+};
+
+export type TickerRow = {
+  id: string;
+  user_id: string;
+  symbol: string;
+  asset_class: AssetClassRow;
+  entry_price: number;
+  current_price: number | null;
+  entry_btc_price: number | null;
+  size_usd: number | null;
+  thesis: string;
+  coingecko_id: string | null;
+  yahoo_symbol: string | null;
+  price_updated_at: string | null;
+  created_at: string;
+  /** Jour de l'entrée (`AAAA-MM-JJ`). */
+  entered_on: string | null;
+  /** Posée par le déclencheur `tickers_freeze`, jamais par le client. */
+  edited_at: string | null;
+  /** La sortie : les trois ensemble, ou aucune (`tickers_exit_complete`). */
+  exit_price: number | null;
+  exit_btc_price: number | null;
+  closed_on: string | null;
+  /** Posée par le déclencheur `tickers_freeze`, jamais par le client. */
+  closed_at: string | null;
+  /** Fin de la fenêtre de vote (publication + 72 h). Posée par la base. */
+  votes_close_at: string;
+  /** Colonne générée : jamais écrite par le client. */
+  performance_percentage: number | null;
+};
+
+export type TickerVoteRow = {
+  ticker_id: string;
+  user_id: string;
+  side: VoteSide;
+  /** Pourquoi ce vote. `null` pour les votes d'avant la règle. */
+  reason: string | null;
+  /** Heure du choix de camp — posée par la base. */
+  created_at: string;
+  /** Changement de camp — une fois au plus, posé par la base. */
+  changed_at: string | null;
+};
+
+/** Un vote retiré : définitif, écrit par `ticker_votes_guard`. */
+export type TickerVoteWithdrawalRow = {
+  ticker_id: string;
+  user_id: string;
+  withdrawn_at: string;
+};
+
+export type PredictionRow = {
+  id: string;
+  user_id: string;
+  /** Ancienne saison de 90 jours. `null` pour les paris ouverts depuis. */
+  season: string | null;
+  /** `1w`, `2w`, `1m`, `3m`, `6m`, `12m` (et `5y`, `10y`, retirés) — voir `src/lib/horizons.ts`. */
+  horizon: string;
+  /** Couples `[jour depuis l'ouverture, prix en dollars]`. */
+  path_data: [number, number][];
+  /** Les trois instants du calendrier, fixés par la base à l'insertion. */
+  opened_at: string;
+  locked_at: string;
+  resolves_at: string;
+  hash: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/** Un appareil abonné aux notifications. Écrit par deux fonctions, jamais directement. */
+export type PushSubscriptionRow = {
+  id: string;
+  user_id: string;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  user_agent: string | null;
+  created_at: string;
+};
+
+/** Ce qu'un membre veut recevoir. Pas de ligne : tout. */
+export type NotificationPrefsRow = {
+  user_id: string;
+  nights: boolean;
+  reminders: boolean;
+  calls: boolean;
+  oracle: boolean;
+  updated_at: string;
+};
+
+/**
+ * Les lignes sont des **alias de type**, jamais des interfaces : une interface
+ * n'obtient pas de signature d'index implicite et ne satisfait donc pas
+ * `Record<string, unknown>`, la contrainte que `GenericSchema` impose à
+ * `createClient`. C'est aussi pour cela que les types générés par la CLI
+ * Supabase n'utilisent que des `type`.
+ */
+type Table<Row, Insert = Partial<Row>, Update = Partial<Row>> = {
+  Row: Row;
+  Insert: Insert;
+  Update: Update;
+  Relationships: [];
+};
+
+export type Database = {
+  public: {
+    Tables: {
+      profiles: Table<ProfileRow>;
+      events: Table<EventRow>;
+      event_attendees: Table<EventAttendeeRow>;
+      potluck_items: Table<PotluckItemRow>;
+      event_proposals: Table<EventProposalRow>;
+      event_proposal_votes: Table<EventProposalVoteRow>;
+      tickers: Table<TickerRow, Omit<Partial<TickerRow>, 'performance_percentage'>>;
+      ticker_votes: Table<TickerVoteRow>;
+      ticker_vote_withdrawals: Table<TickerVoteWithdrawalRow>;
+      entry_waivers: Table<EntryWaiverRow>;
+      event_declines: Table<EventDeclineRow>;
+      predictions: Table<PredictionRow>;
+      push_subscriptions: Table<PushSubscriptionRow>;
+      notification_prefs: Table<NotificationPrefsRow>;
+    };
+    Views: Record<never, never>;
+    Functions: {
+      is_member: { Args: Record<string, never>; Returns: boolean };
+      club_majority: { Args: Record<string, never>; Returns: number };
+      is_valid_path: { Args: { path: unknown }; Returns: boolean };
+      is_valid_price_path: { Args: { path: unknown }; Returns: boolean };
+      taken_profile_colors: { Args: Record<string, never>; Returns: string[] };
+      register_push_subscription: {
+        Args: {
+          p_endpoint: string;
+          p_p256dh: string;
+          p_auth: string;
+          p_user_agent?: string | null;
+        };
+        Returns: undefined;
+      };
+      unregister_push_subscription: { Args: { p_endpoint: string }; Returns: undefined };
+    };
+    Enums: {
+      asset_class: AssetClassRow;
+      vote_side: VoteSide;
+    };
+    CompositeTypes: Record<never, never>;
+  };
+};

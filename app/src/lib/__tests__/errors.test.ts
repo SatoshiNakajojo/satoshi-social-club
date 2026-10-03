@@ -1,0 +1,108 @@
+/**
+ * Traduction des erreurs Supabase.
+ *
+ * Ce sont les seules phrases que verra un membre quand quelque chose coince.
+ * Une chaîne anglaise qui passe au travers est un bug d'interface, pas un
+ * détail — d'où ces cas, pris sur les messages réels de la plateforme.
+ */
+
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+
+import { describeError } from '@/lib/errorMessages';
+
+describe('erreurs d’authentification', () => {
+  it('dit à un inconnu qu’il n’est pas sur la liste', () => {
+    for (const message of [
+      'Signups not allowed for otp',
+      'Signup not allowed for this instance',
+      'User not found',
+    ]) {
+      assert.equal(
+        describeError({ message }),
+        'Cette adresse n’est pas sur la liste du club.',
+        message,
+      );
+    }
+  });
+
+  it('dit qu’un code n’est pas parti à cause du serveur d’envoi, pas de l’adresse', () => {
+    // Le cas vécu : Resend et son expéditeur de test n'écrivent qu'au
+    // titulaire du compte, les autres membres lisaient cette phrase anglaise.
+    for (const message of [
+      'Error sending magic link email',
+      'Error sending confirmation email',
+      'Email address "alex@mail.nc" cannot be used as it is not authorized',
+      'email_address_not_authorized',
+    ]) {
+      assert.match(describeError({ message }), /serveur d’envoi du club/, message);
+    }
+  });
+
+  it('ne fait pas passer un défaut de configuration pour un mauvais code', () => {
+    // GoTrue dit « invalid token » dans les deux cas. Les confondre envoie
+    // chercher l'erreur dans la boîte de réception du membre, alors qu'elle
+    // est dans l'en-tête `Authorization` que l'app envoie.
+    for (const message of [
+      'invalid JWT: unable to parse or verify signature, token is malformed',
+      'bad_jwt',
+    ]) {
+      assert.match(describeError({ message }), /n’arrive pas à s’authentifier/, message);
+    }
+  });
+
+  it('garde son message au vrai code périmé', () => {
+    for (const message of ['Token has expired or is invalid', 'otp_expired']) {
+      assert.equal(describeError({ message }), 'Ce code est expiré ou incorrect.', message);
+    }
+  });
+
+  it('explique la limite d’envoi de courriels', () => {
+    assert.equal(
+      describeError({ message: 'Email rate limit exceeded' }),
+      'Trop de codes demandés. Réessayez dans une heure.',
+    );
+  });
+
+  it('explique l’attente entre deux demandes', () => {
+    assert.equal(
+      describeError({ message: 'For security purposes, you can only request this after 54 seconds.' }),
+      'Un code vient d’être envoyé. Patientez quelques secondes.',
+    );
+  });
+
+  it('distingue un code expiré d’un code faux — même message pour le membre', () => {
+    assert.equal(describeError({ message: 'Token has expired or is invalid' }), 'Ce code est expiré ou incorrect.');
+    assert.equal(describeError({ code: 'otp_expired', message: 'otp_expired' }), 'Ce code est expiré ou incorrect.');
+  });
+});
+
+describe('erreurs de données', () => {
+  it('traduit un refus de RLS', () => {
+    assert.equal(
+      describeError({ message: 'new row violates row-level security policy for table "tickers"' }),
+      'Cette ligne ne vous appartient pas.',
+    );
+  });
+
+  it('traduit une panne réseau', () => {
+    for (const message of ['Failed to fetch', 'Network request failed', 'Load failed']) {
+      assert.equal(describeError({ message }), 'Connexion indisponible.', message);
+    }
+  });
+});
+
+describe('cas limites', () => {
+  it('ne casse pas sur une entrée inattendue', () => {
+    assert.equal(describeError(null), 'Erreur inconnue');
+    assert.equal(describeError(undefined), 'Erreur inconnue');
+    assert.equal(describeError('une chaîne'), 'une chaîne');
+    assert.equal(describeError(42), '42');
+  });
+
+  it('laisse passer un message non traduit plutôt que de le masquer', () => {
+    // Mieux vaut une phrase anglaise qu'un « une erreur est survenue » qui
+    // n'aide personne à diagnostiquer.
+    assert.equal(describeError({ message: 'Quelque chose d’inédit' }), 'Quelque chose d’inédit');
+  });
+});

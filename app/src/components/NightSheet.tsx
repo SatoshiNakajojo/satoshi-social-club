@@ -1,0 +1,569 @@
+import { useEffect, useState } from 'react';
+import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
+
+import { DateTimeFields } from '@/components/DateTimeFields';
+import { Micro } from '@/components/ui/Micro';
+import { getPotluckSource } from '@/features/potluck/source';
+import { useKeyboardFrame } from '@/hooks/useKeyboardFrame';
+import { clubDateTimeParts, parseClubDateTime, todayInClub } from '@/lib/clubTime';
+import { MAX_THEME_LENGTH, normalizeThemes, suggestThemes } from '@/lib/nightThemes';
+import { a, c, f, goldButtonGradient, radius } from '@/theme/tokens';
+import type { ClubEvent, PotluckItem } from '@/types/domain';
+
+export interface NightSheetDraft {
+  startsAt: string;
+  title: string;
+  location: string;
+  themes: string[];
+  potluck: string[];
+}
+
+export interface NightSheetEdit extends Omit<NightSheetDraft, 'potluck'> {
+  potluckAdded: string[];
+  potluckRemoved: string[];
+}
+
+export interface NightSheetProps {
+  visible: boolean;
+  /** Thèmes déjà employés par le club, proposés avant les nouveaux. */
+  knownThemes?: string[];
+  /** Écriture en cours : le bouton se verrouille et annonce l'attente. */
+  creating?: boolean;
+  /** Le refus de la base, montré sous le bouton après un envoi. */
+  error?: string | null;
+  onClose: () => void;
+  /** Résout `true` si la soirée est partie ; la feuille ne se ferme qu'alors. */
+  onCreate?: (draft: NightSheetDraft) => Promise<boolean> | boolean;
+  /**
+   * La soirée à modifier : la feuille s'ouvre pré-remplie, et enregistre par
+   * `onSave`. Le parent la remonte avec une `key` par soirée.
+   */
+  editing?: ClubEvent | null;
+  /** Résout `true` si la modification est enregistrée. */
+  onSave?: (edit: NightSheetEdit) => Promise<boolean> | boolean;
+  /** Supprime la soirée modifiée — après une confirmation. */
+  onDelete?: () => Promise<boolean> | boolean;
+}
+
+/** Contraintes de la base — refuser ici ce qu'elle refuserait de toute façon. */
+const TITLE_MAX = 80;
+const LOCATION_MAX = 80;
+const ITEM_MAX = 60;
+
+/** Six lignes vides : assez pour une soirée, sans transformer l'écran en tableur. */
+const POTLUCK_SLOTS = 6;
+/** En modification, la liste existe déjà : de quoi la compléter. */
+const EDIT_POTLUCK_SLOTS = 3;
+/** Une ligne vide réapparaît sous la dernière remplie, jusqu'à ce plafond. */
+const POTLUCK_MAX_SLOTS = 20;
+
+const sameThemes = (one: readonly string[], other: readonly string[]) =>
+  normalizeThemes([...one]).join('\n').toLocaleLowerCase('fr') ===
+  normalizeThemes([...other]).join('\n').toLocaleLowerCase('fr');
+
+/**
+ * Bottom sheet « Proposer une soirée » — ou, avec `editing`, « Modifier la
+ * soirée » : les mêmes champs, pré-remplis, et la liste existante dont on peut
+ * retirer les lignes encore libres.
+ */
+export function NightSheet({
+  visible,
+  knownThemes = [],
+  creating = false,
+  error = null,
+  onClose,
+  onCreate,
+  editing = null,
+  onSave,
+  onDelete,
+}: NightSheetProps) {
+  const initial = editing ? clubDateTimeParts(editing.startsAt) : null;
+  const slots = editing ? EDIT_POTLUCK_SLOTS : POTLUCK_SLOTS;
+
+  const [date, setDate] = useState(() => initial?.date ?? todayInClub());
+  const [time, setTime] = useState(initial?.time ?? '19:30');
+  const [title, setTitle] = useState(editing?.title ?? '');
+  const [location, setLocation] = useState(editing?.location ?? '');
+  const [picked, setPicked] = useState<string[]>(() => editing?.themes ?? []);
+  const [invented, setInvented] = useState('');
+  const [potluck, setPotluck] = useState<string[]>(() => Array<string>(slots).fill(''));
+  /** Le message d'erreur n'est le nôtre qu'après un envoi depuis cette feuille. */
+  const [tried, setTried] = useState(false);
+  /** Supprimer est définitif : un premier appui arme, le second supprime. */
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  /** La liste actuelle de la soirée modifiée, et les lignes marquées à retirer. */
+  const [existing, setExisting] = useState<PotluckItem[] | null>(null);
+  const [removed, setRemoved] = useState<string[]>([]);
+
+  const editingId = editing?.id ?? null;
+  useEffect(() => {
+    if (!editingId) return;
+    const controller = new AbortController();
+    getPotluckSource()
+      .list(editingId, controller.signal)
+      .then((items) => {
+        if (!controller.signal.aborted) setExisting(items);
+      })
+      // Illisible : on ne propose que l'ajout, la liste reste intacte.
+      .catch(() => {
+        if (!controller.signal.aborted) setExisting([]);
+      });
+    return () => controller.abort();
+  }, [editingId]);
+
+  const startsAt = parseClubDateTime(date, time);
+
+  /**
+   * Les thèmes proposés : ceux du club, puis ceux qu'il a inventés, puis celui
+   * qu'on est en train d'écrire — pour qu'il soit sélectionnable avant même
+   * d'avoir quitté le champ.
+   */
+  const offered = suggestThemes([...knownThemes, ...picked, invented]);
+  const themes = normalizeThemes(picked);
+
+  const reset = () => {
+    setDate(todayInClub());
+    setTime('19:30');
+    setTitle('');
+    setLocation('');
+    setPicked([]);
+    setInvented('');
+    setPotluck(Array<string>(slots).fill(''));
+  };
+
+  const toggleTheme = (theme: string) =>
+    setPicked((current) =>
+      current.some((one) => one.toLocaleLowerCase('fr') === theme.toLocaleLowerCase('fr'))
+        ? current.filter((one) => one.toLocaleLowerCase('fr') !== theme.toLocaleLowerCase('fr'))
+        : normalizeThemes([...current, theme]),
+    );
+
+  /**
+   * Pourquoi la création est bloquée, s'il y a lieu.
+   *
+   * Un bouton inerte sans explication est un cul-de-sac — et une date refusée
+   * l'est en silence, puisqu'elle a l'air correcte à l'écran.
+   */
+  const blockedReason =
+    startsAt === null
+      ? 'Choisissez une date et une heure.'
+      : themes.length === 0
+        ? 'Au moins un thème.'
+        : title.trim().length === 0
+          ? 'Un titre, même court.'
+          : location.trim().length === 0
+            ? 'Où ça se passe.'
+            : null;
+
+  const added = potluck.map((item) => item.trim()).filter((item) => item.length > 0);
+
+  /** En modification, un bouton qui n'enregistrerait rien reste éteint. */
+  const unchanged =
+    editing !== null &&
+    startsAt !== null &&
+    Date.parse(startsAt) === Date.parse(editing.startsAt) &&
+    title.trim() === editing.title &&
+    location.trim() === editing.location &&
+    sameThemes(themes, editing.themes) &&
+    added.length === 0 &&
+    removed.length === 0;
+
+  const canCreate = blockedReason === null && !unchanged && !creating;
+
+  const submit = async () => {
+    if (startsAt === null) return;
+    setTried(true);
+    if (editing) {
+      await onSave?.({
+        startsAt,
+        title,
+        location,
+        themes,
+        potluckAdded: added,
+        potluckRemoved: removed,
+      });
+      return;
+    }
+    const sent = await onCreate?.({ startsAt, title, location, themes, potluck: added });
+    // Sur échec, on garde la saisie : personne ne doit retaper sa liste.
+    if (sent) {
+      reset();
+      setTried(false);
+    }
+  };
+
+  const shownError = tried && !creating ? error : null;
+  const keyboard = useKeyboardFrame();
+
+  const toggleRemoved = (itemId: string) =>
+    setRemoved((current) =>
+      current.includes(itemId) ? current.filter((id) => id !== itemId) : [...current, itemId],
+    );
+
+  /** Toujours une ligne libre en bas : on ajoute autant de choses qu'il faut. */
+  const setSlot = (index: number, value: string) =>
+    setPotluck((current) => {
+      const next = current.map((item, i) => (i === index ? value : item));
+      const last = next[next.length - 1] ?? '';
+      return last.trim().length > 0 && next.length < POTLUCK_MAX_SLOTS ? [...next, ''] : next;
+    });
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      {/* Clavier ouvert, la feuille se cale au-dessus (`useKeyboardFrame`). */}
+      <View className="flex-1" style={keyboard.frame}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Fermer"
+          onPress={onClose}
+          style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+        >
+          <BlurView intensity={18} tint="dark" style={{ flex: 1 }}>
+            <View style={{ flex: 1, backgroundColor: a.scrim }} />
+          </BlurView>
+        </Pressable>
+
+        <View
+          style={{
+            backgroundColor: c.sheet,
+            borderTopWidth: 1,
+            borderTopColor: c.borderSheet,
+            borderTopLeftRadius: radius.sheetTop,
+            borderTopRightRadius: radius.sheetTop,
+            borderBottomLeftRadius: radius.sheetBottom,
+            borderBottomRightRadius: radius.sheetBottom,
+            paddingTop: 16,
+            paddingHorizontal: 22,
+            paddingBottom: 28,
+            ...keyboard.sheet,
+          }}
+        >
+          <View style={{ width: 34, height: 2, backgroundColor: c.borderSheet, alignSelf: 'center' }} />
+
+          <View className="flex-row items-baseline justify-between" style={{ marginTop: 16 }}>
+            <Text style={{ fontFamily: f.serif, fontSize: 22, color: c.ivory }}>
+              {editing ? 'Modifier la soirée' : 'Proposer une soirée'}
+            </Text>
+            <Pressable accessibilityRole="button" onPress={onClose}>
+              <Text
+                style={{ fontFamily: f.labelMed, fontSize: 9, letterSpacing: 1.62, color: c.sepiaMuted }}
+              >
+                FERMER
+              </Text>
+            </Pressable>
+          </View>
+
+          <ScrollView style={{ marginTop: 18 }} keyboardShouldPersistTaps="handled">
+            {/* Rien à taper : un calendrier pour la date, un menu pour l'heure. */}
+            <DateTimeFields
+              date={date}
+              time={time}
+              onDateChange={setDate}
+              onTimeChange={setTime}
+            />
+
+            <View style={{ marginTop: 22 }}>
+              <Micro style={{ marginBottom: 10 }}>THÈMES</Micro>
+              <View className="flex-row flex-wrap" style={{ gap: 8 }}>
+                {offered.map((theme) => {
+                  const on = themes.some(
+                    (one) => one.toLocaleLowerCase('fr') === theme.toLocaleLowerCase('fr'),
+                  );
+                  return (
+                    <Pressable
+                      key={theme}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: on }}
+                      onPress={() => toggleTheme(theme)}
+                      style={{
+                        paddingHorizontal: 12,
+                        paddingVertical: 8,
+                        borderRadius: radius.button,
+                        borderWidth: 1,
+                        borderColor: on ? c.gold : c.border,
+                        backgroundColor: on ? a.rsvpGoldBg : 'transparent',
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontFamily: f.labelMed,
+                          fontSize: 9,
+                          letterSpacing: 1.08,
+                          color: on ? c.gold : c.sepiaMuted,
+                        }}
+                      >
+                        {theme.toLocaleUpperCase('fr')}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <TextInput
+                value={invented}
+                onChangeText={setInvented}
+                onSubmitEditing={() => {
+                  if (invented.trim()) {
+                    toggleTheme(invented.trim());
+                    setInvented('');
+                  }
+                }}
+                placeholder="Inventer un thème — Pizza Night…"
+                placeholderTextColor={c.sepiaFaint}
+                maxLength={MAX_THEME_LENGTH}
+                returnKeyType="done"
+                style={{
+                  fontFamily: f.sans,
+                  fontSize: 13,
+                  color: c.parchment,
+                  marginTop: 12,
+                  paddingVertical: 6,
+                  borderBottomWidth: 1,
+                  borderBottomColor: c.hairline,
+                }}
+              />
+            </View>
+
+            <Block
+              label="TITRE"
+              value={title}
+              onChangeText={setTitle}
+              placeholder="Grillades & Halving Talk"
+              maxLength={TITLE_MAX}
+            />
+            <Block
+              label="LIEU"
+              value={location}
+              onChangeText={setLocation}
+              placeholder="Rooftop — chez Alex"
+              maxLength={LOCATION_MAX}
+            />
+
+            {editing ? (
+              <ExistingPotluck items={existing} removed={removed} onToggle={toggleRemoved} />
+            ) : null}
+
+            <View style={{ marginTop: 22 }}>
+              <Micro style={{ marginBottom: 4 }}>
+                {editing ? 'AJOUTER À LA LISTE' : 'À APPORTER'}
+              </Micro>
+              <Text
+                style={{
+                  fontFamily: f.sans,
+                  fontSize: 10,
+                  lineHeight: 16,
+                  color: c.sepiaFaint,
+                  marginBottom: 8,
+                }}
+              >
+                {editing
+                  ? 'Touchez une ligne pour écrire ce qui manque, une chose par ligne. Laissées libres : chacun prendra la sienne dans l’app.'
+                  : 'Laissées libres : chacun prendra la sienne dans l’app.'}
+              </Text>
+              {potluck.map((item, index) => (
+                <TextInput
+                  key={index}
+                  value={item}
+                  onChangeText={(value) => setSlot(index, value)}
+                  placeholder={index === 0 ? '+ Ex. : glaçons' : '+ Autre chose…'}
+                  placeholderTextColor={c.sepiaFaint}
+                  accessibilityLabel={`Chose à apporter ${index + 1}`}
+                  maxLength={ITEM_MAX}
+                  style={{
+                    fontFamily: f.sans,
+                    fontSize: 14,
+                    color: c.parchment,
+                    paddingVertical: 9,
+                    borderBottomWidth: 1,
+                    borderBottomColor: c.hairline,
+                  }}
+                />
+              ))}
+            </View>
+          </ScrollView>
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ disabled: !canCreate, busy: creating }}
+            disabled={!canCreate}
+            onPress={() => void submit()}
+            style={{ opacity: canCreate ? 1 : 0.45, marginTop: 20 }}
+          >
+            <LinearGradient
+              colors={[...goldButtonGradient]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0, y: 1 }}
+              style={{ alignItems: 'center', paddingVertical: 14, borderRadius: radius.button }}
+            >
+              <Text
+                style={{ fontFamily: f.labelSemi, fontSize: 10, letterSpacing: 2.4, color: c.onGold }}
+              >
+                {editing
+                  ? creating
+                    ? 'ENREGISTREMENT…'
+                    : 'ENREGISTRER'
+                  : creating
+                    ? 'CRÉATION…'
+                    : 'INSCRIRE AU CALENDRIER'}
+              </Text>
+            </LinearGradient>
+          </Pressable>
+
+          <Text
+            style={{
+              fontFamily: f.sans,
+              fontSize: 10,
+              lineHeight: 16,
+              color: shownError ? c.oxblood : blockedReason ? c.sepia : c.sepiaFaint,
+              textAlign: 'center',
+              marginTop: 12,
+            }}
+          >
+            {shownError ??
+              blockedReason ??
+              (unchanged
+                ? 'Rien n’a encore changé.'
+                : editing
+                  ? 'Heure de Nouméa. La carte indiquera au club qu’elle a été modifiée.'
+                  : 'Heure de Nouméa. Tout le club la verra.')}
+          </Text>
+
+          {editing && onDelete ? (
+            <Pressable
+              accessibilityRole="button"
+              disabled={creating}
+              hitSlop={8}
+              onPress={() => {
+                if (!confirmingDelete) {
+                  setConfirmingDelete(true);
+                  return;
+                }
+                setTried(true);
+                void onDelete();
+              }}
+              style={{ alignSelf: 'center', alignItems: 'center', gap: 4, marginTop: 14 }}
+            >
+              <Text
+                style={{
+                  fontFamily: f.labelMed,
+                  fontSize: 9,
+                  letterSpacing: 1.62,
+                  color: confirmingDelete ? c.oxblood : c.oxbloodMuted,
+                }}
+              >
+                {confirmingDelete ? 'CONFIRMER : SUPPRIMER LA SOIRÉE' : 'SUPPRIMER LA SOIRÉE'}
+              </Text>
+              {confirmingDelete ? (
+                <Text style={{ fontFamily: f.sans, fontSize: 10, color: c.sepia }}>
+                  Présences, liste et propositions partiront avec elle.
+                </Text>
+              ) : null}
+            </Pressable>
+          ) : null}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * La liste déjà en place, en modification.
+ *
+ * Une ligne libre se retire (au toucher, barrée jusqu'à l'enregistrement) ;
+ * une ligne prise reste : quelqu'un s'est engagé à l'apporter, ce n'est pas à
+ * l'organisateur de le décommander d'un geste.
+ */
+function ExistingPotluck({
+  items,
+  removed,
+  onToggle,
+}: {
+  items: PotluckItem[] | null;
+  removed: string[];
+  onToggle: (itemId: string) => void;
+}) {
+  return (
+    <View style={{ marginTop: 22 }}>
+      <Micro style={{ marginBottom: 4 }}>LISTE ACTUELLE</Micro>
+      {items === null ? (
+        <Text style={{ fontFamily: f.sans, fontSize: 11, color: c.sepiaFaint, paddingVertical: 9 }}>
+          …
+        </Text>
+      ) : items.length === 0 ? (
+        <Text style={{ fontFamily: f.sans, fontSize: 11, color: c.sepiaFaint, paddingVertical: 9 }}>
+          Rien pour l’instant.
+        </Text>
+      ) : (
+        items.map((item) => {
+          const taken = item.assignedUserId !== null;
+          const gone = removed.includes(item.id);
+          return (
+            <View
+              key={item.id}
+              className="flex-row items-center justify-between"
+              style={{ paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: c.hairline }}
+            >
+              <Text
+                style={{
+                  flex: 1,
+                  fontFamily: f.sans,
+                  fontSize: 14,
+                  color: gone ? c.sepiaFaint : c.parchment,
+                  textDecorationLine: gone ? 'line-through' : 'none',
+                }}
+              >
+                {item.itemName}
+              </Text>
+              {taken ? (
+                <Micro size={8} tracking={1.4} style={{ color: c.sage }}>
+                  PRISE
+                </Micro>
+              ) : (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={gone ? `Garder ${item.itemName}` : `Retirer ${item.itemName}`}
+                  onPress={() => onToggle(item.id)}
+                  hitSlop={8}
+                >
+                  <Micro size={8} tracking={1.4} style={{ color: gone ? c.gold : c.oxbloodMuted }}>
+                    {gone ? 'GARDER' : 'RETIRER'}
+                  </Micro>
+                </Pressable>
+              )}
+            </View>
+          );
+        })
+      )}
+    </View>
+  );
+}
+
+function Block({
+  label,
+  ...rest
+}: React.ComponentProps<typeof TextInput> & { label: string }) {
+  return (
+    <View style={{ marginTop: 18 }}>
+      <Micro size={8.5} tracking={1.7} style={{ color: c.sepiaMuted }}>
+        {label}
+      </Micro>
+      <TextInput
+        placeholderTextColor={c.sepiaFaint}
+        style={{
+          fontFamily: f.sans,
+          fontSize: 15,
+          color: c.parchment,
+          marginTop: 7,
+          paddingVertical: 4,
+          borderBottomWidth: 1,
+          borderBottomColor: c.hairline,
+        }}
+        {...rest}
+      />
+    </View>
+  );
+}
