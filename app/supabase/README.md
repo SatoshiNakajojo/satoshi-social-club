@@ -119,7 +119,7 @@ d'une unité.
 
 **Ordre de mise en production.** La migration d'abord, puis l'app : une app
 publiée avant relit les paris sans le verdict (`betsSource.ts`) et masque les
-ORBTC, sans rien casser. Puis `judge-oracle` (voir `functions/README.md`).
+ORBTC, sans rien casser. Puis `judge-oracle` : un déploiement et une ligne de SQL (voir `functions/README.md`).
 
 ## Realtime
 

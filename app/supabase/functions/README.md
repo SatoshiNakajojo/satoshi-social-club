@@ -265,33 +265,29 @@ Les règles vivent dans `judge-oracle/plan.ts`, testé hors de Deno.
 
 ### Déployer
 
-Depuis `app/`, une commande à la fois :
+Depuis `app/`, sans vérification de jeton — c'est le battement de la base qui
+appelle, avec le secret du coffre-fort, comme pour `notify` :
 
 ```bash
-npx supabase functions deploy judge-oracle --project-ref <ref>
-
-JUDGE_SECRET="$(openssl rand -hex 24)"; echo "$JUDGE_SECRET"
-npx supabase secrets set JUDGE_SECRET="$JUDGE_SECRET" --project-ref <ref>
+npx supabase functions deploy judge-oracle --project-ref <ref> --no-verify-jwt
 ```
 
 `COINGECKO_API_KEY`, s'il est déjà posé pour `refresh-prices`, sert aussi ici.
-Sans `JUDGE_SECRET`, la fonction répond 500 : une configuration inachevée
-n'est pas une permission.
 
-### Planifier
+### Configurer et planifier
 
-La migration pose elle-même le battement (`ssc-judge`, chaque quart d'heure)
-quand pg_cron et pg_net sont disponibles. Il ne reste qu'à ranger l'adresse et
-le secret dans le coffre-fort — dans le **SQL Editor** :
+Une ligne, dans le **SQL Editor** :
 
 ```sql
-select public.set_judge_config(
-  'https://<ref>.supabase.co/functions/v1/judge-oracle',
-  'la-valeur-de-JUDGE_SECRET'
-);
-select public.schedule_judging();  -- « planifié »
-select public.judge_tick();        -- « rien à juger », « appel envoyé », ou ce qui manque
+select public.configure_judging('https://<ref>.supabase.co/functions/v1/judge-oracle');
+-- « planifié »
+select public.judge_tick();  -- « rien à juger », « appel envoyé », ou ce qui manque
 ```
+
+`configure_judging` tire le secret d'appel au hasard et le range dans le
+coffre-fort avec l'adresse ; la fonction le vérifie par `judge_secret_ok`, avec
+la clé de service que la plateforme lui injecte. Aucun secret à recopier.
+Tant que rien n'est configuré, la fonction refuse tout appel.
 
 ### Diagnostiquer
 

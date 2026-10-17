@@ -30,14 +30,6 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-/** Comparaison à temps constant : le secret ne se devine pas caractère par caractère. */
-function sameSecret(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
-}
-
 /** Le cours de la période, `[ms, dollars]`. `null` s'il ne vient pas. */
 async function periodPrices(bet: PendingBet): Promise<[number, number][] | null> {
   try {
@@ -59,13 +51,6 @@ async function periodPrices(bet: PendingBet): Promise<[number, number][] | null>
 }
 
 Deno.serve(async (request) => {
-  const expected = Deno.env.get('JUDGE_SECRET') ?? '';
-  // Une configuration inachevée n'est pas une permission.
-  if (expected.length < 32) return json({ error: 'JUDGE_SECRET manquant' }, 500);
-  if (!sameSecret(request.headers.get('x-judge-secret') ?? '', expected)) {
-    return json({ error: 'secret invalide' }, 401);
-  }
-
   const db = createClient(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
@@ -73,6 +58,16 @@ Deno.serve(async (request) => {
       auth: { persistSession: false },
     },
   );
+
+  // Le secret d'appel vit dans le coffre-fort de la base (`configure_judging`) :
+  // c'est elle qui dit s'il est bon. Coffre-fort vide = aucun appel accepté —
+  // une configuration inachevée n'est pas une permission.
+  const presented = request.headers.get('x-judge-secret') ?? '';
+  const { data: allowed, error: refused } = await db.rpc('judge_secret_ok', {
+    p_secret: presented,
+  });
+  if (refused) return json({ error: refused.message }, 500);
+  if (allowed !== true) return json({ error: 'secret invalide' }, 401);
 
   const { data, error } = await db
     .from('predictions')

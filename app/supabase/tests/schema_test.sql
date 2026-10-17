@@ -1582,6 +1582,11 @@ begin
   assert n = 3, 'les membres lisent les portefeuilles';
   raise notice 'ok · orbtc : le verdict vient du serveur, les soldes se lisent';
 
+  -- 8. Le juge : sans coffre-fort configuré, aucun secret n'ouvre la porte.
+  assert not public.judge_secret_ok('n''importe quoi'), 'sans configuration, aucun appel accepté';
+  assert not public.judge_secret_ok(null), 'un secret absent est refusé';
+  raise notice 'ok · orbtc : le juge refuse tout tant qu''il n''est pas configuré';
+
   delete from public.predictions;
   delete from public.orbtc_accounts;
   delete from public.profiles where id = marco;

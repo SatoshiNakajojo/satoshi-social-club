@@ -453,7 +453,7 @@ begin
     return 'coffre-fort illisible : ' || sqlerrm;
   end;
   if fn_url is null or secret is null then
-    return 'non configuré — voir supabase/functions/README.md, « judge-oracle »';
+    return 'non configuré — select public.configure_judging(<adresse de judge-oracle>)';
   end if;
 
   begin
@@ -509,6 +509,61 @@ $$;
 
 revoke all on function public.set_judge_config(text, text) from public, anon, authenticated;
 
+/**
+ * Configure le juge en une ligne, depuis le SQL Editor :
+ *
+ *   select public.configure_judging('https://<ref>.supabase.co/functions/v1/judge-oracle');
+ *
+ * Le secret d'appel est tiré ici, au hasard, et ne sort jamais du coffre-fort :
+ * la fonction le vérifie par `judge_secret_ok`, avec la clé de service que la
+ * plateforme lui injecte. Aucun secret à recopier, ni à poser à la main.
+ */
+create or replace function public.configure_judging(p_url text)
+returns text
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  perform public.set_judge_config(
+    p_url,
+    replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '')
+  );
+  return public.schedule_judging();
+end;
+$$;
+
+revoke all on function public.configure_judging(text) from public, anon, authenticated;
+
+/**
+ * Le secret présenté par l'appelant est-il celui du coffre-fort ?
+ * Réservé à la clé de service : c'est la fonction `judge-oracle` qui demande.
+ * Faux, sans lever, si le coffre-fort est vide ou illisible.
+ */
+create or replace function public.judge_secret_ok(p_secret text)
+returns boolean
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  expected text;
+begin
+  begin
+    select decrypted_secret into expected
+      from vault.decrypted_secrets where name = 'ssc_judge_secret';
+  exception when others then
+    return false;
+  end;
+  return expected is not null
+     and length(expected) >= 32
+     and coalesce(p_secret, '') = expected;
+end;
+$$;
+
+revoke all on function public.judge_secret_ok(text) from public, anon, authenticated;
+
 /** Pose le battement du juge. Rejouable ; ne lève pas. */
 create or replace function public.schedule_judging()
 returns text
@@ -532,6 +587,8 @@ do $$
 begin
   if exists (select 1 from pg_roles where rolname = 'service_role') then
     grant execute on function public.set_judge_config(text, text) to service_role;
+    grant execute on function public.configure_judging(text) to service_role;
+    grant execute on function public.judge_secret_ok(text) to service_role;
     grant execute on function public.schedule_judging() to service_role;
     grant execute on function public.judge_tick() to service_role;
   end if;
