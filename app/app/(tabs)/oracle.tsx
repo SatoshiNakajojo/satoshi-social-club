@@ -4,6 +4,10 @@ import { Pressable, Text, View } from 'react-native';
 import { OracleCanvas } from '@/components/OracleCanvas';
 import type { OracleCurve } from '@/components/OracleGraph';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { MancheCard } from '@/components/MancheCard';
+import { OrbtcMovements } from '@/components/OrbtcMovements';
+import { OrbtcSupply } from '@/components/OrbtcSupply';
+import { OrbtcWallet } from '@/components/OrbtcWallet';
 import { ScreenShell } from '@/components/ScreenShell';
 import { TimeLockCard } from '@/components/TimeLockCard';
 import { MemberAvatar } from '@/components/MemberAvatar';
@@ -13,6 +17,7 @@ import { OracleStandings } from '@/components/OracleStandings';
 import { clubYear, standings } from '@/features/oracle/standings';
 import { DAY_MS } from '@/features/oracle/betting';
 import { useOracle, type BetView } from '@/features/oracle/useOracle';
+import { useOrbtc } from '@/features/oracle/useOrbtc';
 import { useBtcSpot } from '@/hooks/useBtcMarket';
 import { useMembers } from '@/hooks/useMembers';
 import { useSession } from '@/hooks/useSession';
@@ -21,6 +26,7 @@ import { calendarTicks } from '@/lib/calendarTicks';
 import {
   formatClubDate,
   formatCountdown,
+  formatInteger,
   formatLeft,
   formatTarget,
   formatUsd,
@@ -54,11 +60,19 @@ const HISTORY_PREVIEW = 8;
  */
 export default function OracleScreen() {
   const { userId } = useSession();
-  const { byId } = useMembers();
+  const { members, byId } = useMembers();
   const { spot } = useBtcSpot();
   const [horizon, setHorizon] = useState<HorizonKey>(DEFAULT_HORIZON);
   const oracle = useOracle(userId, byId, horizon);
   const { window, mine, club, draft, dirty, saving, drawRange, now } = oracle;
+  const orbtc = useOrbtc({
+    bets: oracle.bets,
+    history: oracle.history,
+    members,
+    userId,
+    horizon,
+    now,
+  });
 
   const [showOthers, setShowOthers] = useState(true);
   const [showAllHistory, setShowAllHistory] = useState(false);
@@ -118,6 +132,9 @@ export default function OracleScreen() {
 
   const sealed = mine?.phase === 'locked';
   const hasDraft = draft.length > 1;
+  /** Un pari neuf engage la mise de l'horizon ; mettre à jour un tracé ne coûte rien. */
+  const staking = orbtc.started && !mine;
+  const broke = staking && Boolean(orbtc.me) && !orbtc.canStake;
   const resolvesAt = mine?.bet.resolvesAt ?? now + h.days * DAY_MS;
 
   const hint = drawRange
@@ -145,6 +162,14 @@ export default function OracleScreen() {
   return (
     <ScreenShell overline={`Paris BTC · ${h.long.toLowerCase()}`} title="L’Oracle" me={me}>
       <View style={{ gap: 20 }}>
+        <OrbtcWallet
+          me={orbtc.me}
+          holdings={orbtc.holdings}
+          inPlay={orbtc.inPlay}
+          started={orbtc.started}
+          genesis={orbtc.genesis}
+        />
+
         <HorizonPicker
           value={horizon}
           summary={oracle.summary}
@@ -170,6 +195,16 @@ export default function OracleScreen() {
             value={`Jugé le ${formatClubDate(resolvesAt)}`}
           />
         )}
+
+        <MancheCard
+          current={orbtc.current}
+          myManche={orbtc.myManche}
+          membersById={byId}
+          started={orbtc.started}
+          genesis={orbtc.genesis}
+          canBet={Boolean(orbtc.me)}
+          canStake={orbtc.canStake}
+        />
 
         <View>
           <View className="flex-row items-end justify-between" style={{ marginBottom: 12 }}>
@@ -302,8 +337,8 @@ export default function OracleScreen() {
           {drawRange && hasDraft ? (
             <Pressable
               accessibilityRole="button"
-              accessibilityState={{ disabled: !dirty || saving }}
-              disabled={!dirty || saving}
+              accessibilityState={{ disabled: !dirty || saving || broke }}
+              disabled={!dirty || saving || broke}
               onPress={oracle.save}
               style={{
                 marginTop: 14,
@@ -320,16 +355,20 @@ export default function OracleScreen() {
                   fontFamily: f.labelMed,
                   fontSize: 10,
                   letterSpacing: 1.8,
-                  color: saving ? c.sepiaMuted : dirty ? c.gold : c.sage,
+                  color: saving || broke ? c.sepiaMuted : dirty ? c.gold : c.sage,
                 }}
               >
                 {saving
                   ? 'ENREGISTREMENT…'
-                  : !mine
-                    ? `DÉPOSER MON PARI · ${h.label}`
-                    : dirty
-                      ? 'METTRE À JOUR MON PARI'
-                      : 'PARI DÉPOSÉ'}
+                  : broke
+                    ? 'SOLDE ORBTC INSUFFISANT'
+                    : !mine && staking
+                      ? `MISER ${formatInteger(orbtc.current.stake)} ORBTC · ${h.label}`
+                      : !mine
+                        ? `DÉPOSER MON PARI · ${h.label}`
+                        : dirty
+                          ? 'METTRE À JOUR MON PARI'
+                          : 'PARI DÉPOSÉ'}
               </Text>
             </Pressable>
           ) : null}
@@ -397,6 +436,12 @@ export default function OracleScreen() {
             ))
           )}
         </View>
+
+        {orbtc.holdings.length > 0 ? (
+          <OrbtcSupply holdings={orbtc.holdings} userId={userId} />
+        ) : null}
+
+        {orbtc.me && orbtc.started ? <OrbtcMovements movements={orbtc.movements} /> : null}
 
         <OracleStandings
           rows={ranking}

@@ -59,6 +59,8 @@ export interface HorizonSummary {
 
 export interface OracleState {
   now: number;
+  /** Tous les paris chargés, tous horizons et tous membres : les ORBTC s'en déduisent. */
+  bets: Bet[];
   window: Window;
   frame: Frame;
   /** Le cours réel, en jours depuis l'origine du repère. */
@@ -527,6 +529,7 @@ export function useOracle(
 
   return {
     now,
+    bets,
     window: range,
     frame,
     btc,
