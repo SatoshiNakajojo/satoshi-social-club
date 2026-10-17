@@ -230,10 +230,78 @@ autres non.
   un service de push connu (Apple, Google, Mozilla, Microsoft) — contrainte en
   base, et second contrôle à l'envoi. Sans ce filtre, un membre pourrait faire
   émettre au serveur des requêtes vers l'adresse de son choix.
-- **Mettre la justesse d'un pari dans la notification.** Elle se calcule dans
-  l'app, sur les séries canoniques de l'Oracle ; un second calcul côté serveur
-  finirait par différer d'un point. La notification donne ce qui est sûr — ce
-  que visait le tracé, le cours du moment — et renvoie à l'Oracle.
+- **Mettre la justesse d'un pari dans la notification.** Quand le pari est
+  résolu, son verdict n'est pas encore écrit : `judge-oracle` passe dans le
+  quart d'heure. La notification donne ce qui est sûr — ce que visait le
+  tracé, le cours du moment — et renvoie à l'Oracle.
 - **Déranger la nuit.** Les seuls envois programmés sont les rappels, à partir
   de 9 h à Nouméa ; les autres suivent un geste d'un membre.
+
+---
+
+## `judge-oracle`
+
+Écrit le **verdict** de chaque pari résolu : `predictions.accuracy` (en %, au
+centième) et `judged_at`. C'est le seul écrivain de ces colonnes — le
+déclencheur `predictions_verdict_trigger` ignore ce qu'un membre y envoie — et
+c'est sur ces verdicts que se règlent les manches d'ORBTC
+(`migrations/20261018090000_orbtc.sql`).
+
+### Comment elle juge
+
+- Chaque pari, sur le cours de **sa** période : `market_chart/range` de
+  CoinGecko, de son ouverture à sa résolution. Le grain est choisi par
+  CoinGecko (horaire jusqu'à 90 jours, journalier au-delà) et ne dépend que de
+  la période : le verdict ne bouge plus une fois écrit.
+- Avec le code de l'app : `_shared/oracleJudge.ts`, que `src/lib/accuracy.ts`
+  et `src/lib/chart.ts` réexportent. L'écran et la base ne peuvent pas
+  diverger d'un point.
+- Un pari sans tracé jugeable est clos sans justesse : il ne gagne pas de pot.
+- Un cours introuvable n'invente rien : `judge_attempts` augmente, et le
+  battement retente ; après vingt échecs, la ligne attend un administrateur.
+  (L'API publique de CoinGecko ne remonte qu'à 365 jours.)
+
+Les règles vivent dans `judge-oracle/plan.ts`, testé hors de Deno.
+
+### Déployer
+
+Depuis `app/`, une commande à la fois :
+
+```bash
+npx supabase functions deploy judge-oracle --project-ref <ref>
+
+JUDGE_SECRET="$(openssl rand -hex 24)"; echo "$JUDGE_SECRET"
+npx supabase secrets set JUDGE_SECRET="$JUDGE_SECRET" --project-ref <ref>
+```
+
+`COINGECKO_API_KEY`, s'il est déjà posé pour `refresh-prices`, sert aussi ici.
+Sans `JUDGE_SECRET`, la fonction répond 500 : une configuration inachevée
+n'est pas une permission.
+
+### Planifier
+
+La migration pose elle-même le battement (`ssc-judge`, chaque quart d'heure)
+quand pg_cron et pg_net sont disponibles. Il ne reste qu'à ranger l'adresse et
+le secret dans le coffre-fort — dans le **SQL Editor** :
+
+```sql
+select public.set_judge_config(
+  'https://<ref>.supabase.co/functions/v1/judge-oracle',
+  'la-valeur-de-JUDGE_SECRET'
+);
+select public.schedule_judging();  -- « planifié »
+select public.judge_tick();        -- « rien à juger », « appel envoyé », ou ce qui manque
+```
+
+### Diagnostiquer
+
+```sql
+select id, horizon, resolves_at, accuracy, judged_at, judge_attempts
+  from public.predictions
+ where resolves_at <= now()
+ order by resolves_at desc limit 20;
+
+select * from public.orbtc_manches order by manche_start desc;
+select * from public.orbtc_holdings order by total desc;
+```
 

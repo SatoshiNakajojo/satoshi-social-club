@@ -184,7 +184,9 @@ les votes argumentés (phrase, fenêtre de 72 h, pas sur son propre call),
 les notifications (abonnements, réglages, file, rappels du jour J, battement),
 le calendrier d'un pari de l'Oracle fixé par la base, un seul pari
 en cours par horizon, le scellement du tracé, le retrait et le déblocage d'un
-pari, les couleurs lisibles avant l'adhésion, et le refus d'une couleur déjà portée. Voir
+pari, les couleurs lisibles avant l'adhésion, le refus d'une couleur déjà portée, et les
+ORBTC : genèse en parts égales, pot au plus juste, offre conservée, mise rendue au joueur
+seul, manche en attente de verdict, pari refusé faute d'ORBTC, verdict réservé au serveur. Voir
 `supabase/README.md`.
 
 Avec la CLI Supabase, c'est plus court :

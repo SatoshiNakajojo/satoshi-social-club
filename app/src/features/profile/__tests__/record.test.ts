@@ -114,6 +114,8 @@ describe('l’Oracle d’un membre', () => {
       resolvesAt: s.resolvesAt,
       path: [],
       hash: null,
+      accuracy: null,
+      judgedAt: null,
     };
   };
   const judged = (b: Bet, accuracy: number, who: Member): BetView => ({

@@ -62,6 +62,8 @@ rapide », et qui déclenche son rollback. Le client n'arbitre rien.
 | `ticker_votes_guard` | Un vote porte une phrase ; jamais sur son propre call, ni hors fenêtre, ni sur un call clos — et ne se retire pas après coup |
 | `events_notify`, `tickers_notify` | Une soirée à venir, un call publié ou clôturé : le fait entre dans `notification_outbox`, dans la même transaction |
 | `predictions_guard` | La base fixe le calendrier d'un pari à l'insertion (`opened_at`, `locked_at`, `resolves_at` selon l'horizon) et refuse qu'on le change ; un seul pari en cours par membre et par horizon ; après `locked_at`, le tracé ne bouge plus ; l'empreinte `HASH 8F2A` suit le tracé |
+| `predictions_verdict_trigger` | Le verdict d'un pari (`accuracy`, `judged_at`) n'est écrit que par le serveur : ce qu'un membre y envoie est ignoré |
+| `predictions_orbtc_trigger` | Depuis la genèse, un pari neuf est refusé si le membre n'a plus de quoi payer la mise de son horizon en ORBTC |
 | `*_touch` | `updated_at` |
 
 `tickers.performance_percentage` est une **colonne générée** : elle ne peut pas
@@ -80,6 +82,44 @@ Les tracés d'avant les horizons étaient stockés en coordonnées de toile
 les convertit en prix et en fait des paris à trois mois, datés du début de leur
 saison. Un membre retire son pari (`predictions_delete_own`) tant qu'il est
 révisable, jamais après.
+
+## Les ORBTC et le verdict du serveur
+
+Migration `20261018090000_orbtc.sql`. Les ORBTC (« Oracle BTC ») sont la
+monnaie de jeu de l'Oracle — **sans valeur monétaire** : ils ne s'achètent ni ne
+se revendent.
+
+| Objet | Rôle |
+|---|---|
+| `orbtc_config` | Une ligne : la date de genèse (1er novembre 2026, minuit à Nouméa) et l'offre (21 000 000) |
+| `orbtc_accounts` | La part de chacun, **figée à la genèse** par `orbtc_ensure_accounts()` : l'offre en parts égales entre les membres présents à cet instant |
+| `orbtc_stake(h)` | La mise d'un horizon : 10 000 × le poids de l'horizon (10 000 à 40 000) |
+| `orbtc_manche_start/end` | La période de manche d'un pari, à l'heure de Nouméa : semaine, quinzaine, mois, trimestre, semestre, année |
+| vues `orbtc_entries`, `orbtc_manches`, `orbtc_results`, `orbtc_holdings` | Les paris engagés, l'état de chaque manche, ce que reçoit chaque pari, les portefeuilles |
+
+Les soldes ne sont **jamais stockés** : ils se déduisent des paris et de leurs
+verdicts. Le plus juste d'une manche emporte le pot ; à égalité on partage
+(le reste de la division aux premiers à avoir parié) ; seul, on récupère sa
+mise ; un pari sans verdict met la manche en attente. La somme des
+portefeuilles vaut toujours l'offre.
+
+L'app applique la même règle en TypeScript (`src/features/oracle/orbtc.ts`),
+pour l'affichage. `tests/schema_test.sql` rejoue dans la base le scénario de
+ses tests, et `scripts/__tests__/orbtc-sql.test.mjs` compare les mises, l'offre
+et la genèse des deux côtés.
+
+**Le verdict.** Une manche ne se règle pas sur un calcul que chaque téléphone
+refait à sa façon. La fonction Edge `judge-oracle` juge chaque pari résolu,
+une fois, sur le cours CoinGecko de **sa** période, avec le code de l'app
+(`functions/_shared/oracleJudge.ts`), et l'écrit dans `predictions.accuracy`.
+L'app l'affiche dès qu'il existe — historique, classement et ORBTC — et juge
+elle-même en attendant. Conséquence assumée : à sa première passe, le juge
+fige les paris déjà résolus, et quelques points du classement peuvent bouger
+d'une unité.
+
+**Ordre de mise en production.** La migration d'abord, puis l'app : une app
+publiée avant relit les paris sans le verdict (`betsSource.ts`) et masque les
+ORBTC, sans rien casser. Puis `judge-oracle` (voir `functions/README.md`).
 
 ## Realtime
 

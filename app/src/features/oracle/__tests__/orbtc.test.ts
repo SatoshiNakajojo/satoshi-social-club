@@ -44,6 +44,8 @@ const staked = (
     resolvesAt: schedule.resolvesAt,
     path: [],
     hash: null,
+    accuracy: null,
+    judgedAt: null,
   };
   return { bet, accuracy };
 };

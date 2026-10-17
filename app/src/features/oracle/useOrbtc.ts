@@ -2,13 +2,10 @@ import { useMemo } from 'react';
 
 import type { HorizonKey } from '@/lib/horizons';
 import { supabase } from '@/lib/supabase';
-import { MOCK_ORBTC_GENESIS } from '@/mocks/oracle';
 import type { Member } from '@/types/domain';
 import type { Bet } from './betting';
 import {
-  ORBTC_GENESIS,
   buildManches,
-  genesisShares,
   holdings,
   mancheLabel,
   mancheWindow,
@@ -20,6 +17,7 @@ import {
   type Movement,
 } from './orbtc';
 import type { BetView } from './useOracle';
+import { useOrbtcAccounts } from './useOrbtcAccounts';
 
 /** Un portefeuille, avec son membre. */
 export interface MemberHolding extends Holding {
@@ -27,6 +25,8 @@ export interface MemberHolding extends Holding {
 }
 
 export interface OrbtcState {
+  /** La base connaît les ORBTC (ou mode démo) : sinon, l'écran n'en montre rien. */
+  enabled: boolean;
   /** La genèse : avant, personne n'a encore rien misé. */
   genesis: number;
   started: boolean;
@@ -49,9 +49,11 @@ export interface OrbtcState {
 /**
  * Les ORBTC du club, déduits des paris (`orbtc.ts`).
  *
- * Les paris résolus prennent leur justesse dans l'historique jugé — les mêmes
- * séries canoniques que le classement : un pari ne peut pas gagner un pot ici
- * et perdre des points là.
+ * Avec un backend, une manche se règle sur le **verdict du serveur**
+ * (`predictions.accuracy`, écrit par `judge-oracle`) — exactement ce que lit la
+ * base pour refuser une mise (`orbtc_holdings`) : l'écran et la base ne
+ * peuvent pas annoncer deux soldes différents. Un pari jugé sans justesse
+ * possible compte pour zéro. Sans backend, l'app juge elle-même (mode démo).
  */
 export function useOrbtc({
   bets,
@@ -68,28 +70,31 @@ export function useOrbtc({
   horizon: HorizonKey;
   now: number;
 }): OrbtcState {
-  /** Sans backend, la genèse du monde fictif : il y a déjà eu des manches. */
-  const genesis = supabase ? ORBTC_GENESIS : MOCK_ORBTC_GENESIS;
+  const accounts = useOrbtcAccounts(members, now);
+  const { genesis, shares } = accounts;
 
   const manches = useMemo(() => {
-    const judged = new Map(history.map((view) => [view.bet.id, view.accuracy]));
-    const players = new Set(members.map((member) => member.id));
+    const local = new Map(history.map((view) => [view.bet.id, view.accuracy]));
+    const verdictOf = (bet: Bet) =>
+      supabase
+        ? bet.judgedAt === null
+          ? null
+          : (bet.accuracy ?? 0)
+        : (local.get(bet.id) ?? null);
     return buildManches(
-      bets.map((bet) => ({ bet, accuracy: judged.get(bet.id) ?? null })),
-      players,
+      bets.map((bet) => ({ bet, accuracy: verdictOf(bet) })),
+      new Set(shares.keys()),
       genesis,
       now,
     );
-  }, [bets, history, members, genesis, now]);
+  }, [bets, history, shares, genesis, now]);
 
   return useMemo(() => {
     const byId = new Map(members.map((member) => [member.id, member]));
-    const rows = holdings(genesisShares(members.map((member) => member.id)), manches).flatMap(
-      (row) => {
-        const member = byId.get(row.userId);
-        return member ? [{ ...row, member }] : [];
-      },
-    );
+    const rows = holdings(shares, manches).flatMap((row) => {
+      const member = byId.get(row.userId);
+      return member ? [{ ...row, member }] : [];
+    });
     const me = rows.find((row) => row.userId === userId) ?? null;
 
     const window = mancheWindow(horizon, now);
@@ -105,6 +110,7 @@ export function useOrbtc({
       ) ?? null;
 
     return {
+      enabled: accounts.enabled,
       genesis,
       started: now >= genesis,
       holdings: rows,
@@ -121,5 +127,5 @@ export function useOrbtc({
       movements: movementsOf(userId, manches),
       canStake: Boolean(me && me.available >= stake),
     };
-  }, [manches, members, userId, horizon, now, genesis]);
+  }, [manches, members, shares, accounts.enabled, userId, horizon, now, genesis]);
 }

@@ -31,7 +31,7 @@ Trois onglets, trois mécaniques :
 |---|---|
 | **Nights** | Agenda des Crypto Nights et checklist potluck partagée en temps réel |
 | **Calls** | Fil des calls d'investissement, Hall of Fame et Rekt Board |
-| **Oracle** | Paris sur le cours du BTC, tracés au doigt — d'une semaine à un an, en parallèle, chacun avec son verrou et sa date de jugement |
+| **Oracle** | Paris sur le cours du BTC, tracés au doigt — d'une semaine à un an, en parallèle, chacun avec son verrou et sa date de jugement. Chaque pari engage des **ORBTC**, la monnaie de jeu du club (sans valeur monétaire) : le plus juste de sa manche emporte le pot |
 
 Registre visuel : club privé, feutré. L'orange Bitcoin y est un **or**, en
 accent rare, sur fond encre chaude. Référence : `Bitcoin Club v2.dc.html`.
@@ -124,7 +124,7 @@ qu'on n'a pas déposé le nouveau tracé.
 
 ## Ce qui a été vérifié
 
-- `npm run typecheck`, `npm run lint`, `npm test` — propres (614 tests).
+- `npm run typecheck`, `npm run lint`, `npm test` — propres (649 tests).
 - **Règles pures** : bornes et inversibilité du repère, monotonie du tracé,
   écart à la courbe réelle, espaces insécables du formatage français, perf vs ₿
   comme ratio et non soustraction, seuils et tri des deux classements.

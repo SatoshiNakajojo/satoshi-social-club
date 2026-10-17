@@ -21,7 +21,8 @@ function unknownMember(id: string): Member {
 }
 
 /**
- * Les paris résolus, jugés sur les séries canoniques (`judging.ts`).
+ * Les paris résolus : le verdict du serveur (`judge-oracle`) quand il existe,
+ * sinon un jugement de l'app sur les séries canoniques (`judging.ts`).
  *
  * Partagé par l'onglet Oracle et la page d'un membre : c'est ce qui garantit
  * qu'un pari rapporte les mêmes points aux deux endroits.
@@ -56,9 +57,18 @@ export function useJudgedHistory(
         author: membersById.get(bet.userId) ?? unknownMember(bet.userId),
         phase: 'resolved' as const,
         target: targetOf(bet.path),
-        accuracy: source
-          ? accuracyPercent(bet.path, seriesForBet(source.points, source.origin!, bet.openedAt))
-          : null,
+        // Le verdict du serveur fait foi dès qu'il existe : c'est sur lui que
+        // se règlent les ORBTC, et le classement doit dire la même chose. En
+        // attendant (ou sans backend), l'app juge elle-même, comme avant.
+        accuracy:
+          bet.judgedAt !== null
+            ? bet.accuracy
+            : source
+              ? accuracyPercent(
+                  bet.path,
+                  seriesForBet(source.points, source.origin!, bet.openedAt),
+                )
+              : null,
         // L'historique ne se trace pas sur le repère : il n'a pas de position.
         onChart: [],
       };

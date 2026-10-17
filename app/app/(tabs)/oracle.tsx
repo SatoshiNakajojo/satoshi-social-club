@@ -133,7 +133,7 @@ export default function OracleScreen() {
   const sealed = mine?.phase === 'locked';
   const hasDraft = draft.length > 1;
   /** Un pari neuf engage la mise de l'horizon ; mettre à jour un tracé ne coûte rien. */
-  const staking = orbtc.started && !mine;
+  const staking = orbtc.enabled && orbtc.started && !mine;
   const broke = staking && Boolean(orbtc.me) && !orbtc.canStake;
   const resolvesAt = mine?.bet.resolvesAt ?? now + h.days * DAY_MS;
 
@@ -162,13 +162,15 @@ export default function OracleScreen() {
   return (
     <ScreenShell overline={`Paris BTC · ${h.long.toLowerCase()}`} title="L’Oracle" me={me}>
       <View style={{ gap: 20 }}>
-        <OrbtcWallet
-          me={orbtc.me}
-          holdings={orbtc.holdings}
-          inPlay={orbtc.inPlay}
-          started={orbtc.started}
-          genesis={orbtc.genesis}
-        />
+        {orbtc.enabled ? (
+          <OrbtcWallet
+            me={orbtc.me}
+            holdings={orbtc.holdings}
+            inPlay={orbtc.inPlay}
+            started={orbtc.started}
+            genesis={orbtc.genesis}
+          />
+        ) : null}
 
         <HorizonPicker
           value={horizon}
@@ -196,15 +198,17 @@ export default function OracleScreen() {
           />
         )}
 
-        <MancheCard
-          current={orbtc.current}
-          myManche={orbtc.myManche}
-          membersById={byId}
-          started={orbtc.started}
-          genesis={orbtc.genesis}
-          canBet={Boolean(orbtc.me)}
-          canStake={orbtc.canStake}
-        />
+        {orbtc.enabled ? (
+          <MancheCard
+            current={orbtc.current}
+            myManche={orbtc.myManche}
+            membersById={byId}
+            started={orbtc.started}
+            genesis={orbtc.genesis}
+            canBet={Boolean(orbtc.me)}
+            canStake={orbtc.canStake}
+          />
+        ) : null}
 
         <View>
           <View className="flex-row items-end justify-between" style={{ marginBottom: 12 }}>
@@ -437,11 +441,13 @@ export default function OracleScreen() {
           )}
         </View>
 
-        {orbtc.holdings.length > 0 ? (
+        {orbtc.enabled && orbtc.holdings.length > 0 ? (
           <OrbtcSupply holdings={orbtc.holdings} userId={userId} />
         ) : null}
 
-        {orbtc.me && orbtc.started ? <OrbtcMovements movements={orbtc.movements} /> : null}
+        {orbtc.enabled && orbtc.me && orbtc.started ? (
+          <OrbtcMovements movements={orbtc.movements} />
+        ) : null}
 
         <OracleStandings
           rows={ranking}

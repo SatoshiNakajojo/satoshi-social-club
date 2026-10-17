@@ -15,8 +15,8 @@ import {
 import { describeError, supabase } from '@/lib/supabase';
 import { MOCK_BETS } from '@/mocks/oracle';
 import type { Member } from '@/types/domain';
+import { betColumns, selectBets } from './betsSource';
 import {
-  BET_COLUMNS,
   DAY_MS,
   betFromRow,
   myOpenBet,
@@ -203,24 +203,16 @@ export function useOracle(
     const controller = new AbortController();
 
     (async () => {
-      const { data, error: cause } = await client
-        .from('predictions')
-        .select(BET_COLUMNS)
-        .order('opened_at')
-        .abortSignal(controller.signal);
+      const { bets: loaded, error: cause } = await selectBets(client, controller.signal);
 
       if (controller.signal.aborted) return;
-      if (cause) {
+      if (cause || !loaded) {
         // Une relecture qui échoue garde les paris affichés.
         if (!loadedOnce.current) setError(describeError(cause));
       } else {
         if (loadedOnce.current) setError(null);
         loadedOnce.current = true;
-        setBets(
-          (data ?? [])
-            .map((row) => betFromRow(row as BetRow))
-            .filter((bet): bet is Bet => bet !== null),
-        );
+        setBets(loaded);
       }
       setLoading(false);
     })();
@@ -424,6 +416,8 @@ export function useOracle(
             resolvesAt: schedule.resolvesAt,
             path,
             hash: 'D3M0',
+            accuracy: null,
+            judgedAt: null,
           };
       setBets((all) => upsertBet(all, bet));
       settle(written);
@@ -440,12 +434,12 @@ export function useOracle(
             .from('predictions')
             .update({ path_data: pathData })
             .eq('id', mineBet.id)
-            .select(BET_COLUMNS)
+            .select(betColumns())
             .single()
         : await client
             .from('predictions')
             .insert({ user_id: userId, horizon, path_data: pathData })
-            .select(BET_COLUMNS)
+            .select(betColumns())
             .single();
       setSaving(false);
 
@@ -453,7 +447,7 @@ export function useOracle(
         setError(describeError(cause));
         return;
       }
-      const bet = betFromRow(data as BetRow);
+      const bet = betFromRow(data as unknown as BetRow);
       if (bet) setBets((all) => upsertBet(all, bet));
       setError(null);
       settle(written);

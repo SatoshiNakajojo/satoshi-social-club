@@ -54,6 +54,8 @@ const resolved = (who: string, accuracy: number): BetView =>
       resolvesAt: Date.UTC(2026, 4, 2),
       path: [],
       hash: null,
+      accuracy: null,
+      judgedAt: null,
     },
     author: MEMBERS.find((m) => m.id === who)!,
     phase: 'resolved',

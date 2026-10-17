@@ -92,6 +92,9 @@ function mockBet(userId: string, horizon: HorizonKey, openedAt: number, drift: n
     // Un pari verrouillé a son empreinte ; les autres aussi, puisqu'elle suit
     // le tracé — la base la recalcule à chaque écriture.
     hash: ['8F2A', '3C71', 'B04E', '19DD', '7A5F', 'E2C8', '5B90', 'D4A6'][sequence % 8]!,
+    // Sans serveur, personne ne juge : l'app juge elle-même, en mode démo.
+    accuracy: null,
+    judgedAt: null,
   };
 }
 

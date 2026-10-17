@@ -36,6 +36,8 @@ const resolved = (
       resolvesAt,
       path: [],
       hash: null,
+      accuracy: null,
+      judgedAt: null,
     },
     author,
     phase: 'resolved',
