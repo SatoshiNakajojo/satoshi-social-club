@@ -187,10 +187,7 @@ function clampValue(value: number, min: number, max: number): number {
  * pas le passé — il est déjà écrit par la courbe réelle.
  */
 export function clampToCanvas(px: number, py: number, bounds: DrawBounds = DRAW_BOUNDS): Point {
-  return [
-    clampValue(px, bounds.minX, bounds.maxX),
-    clampValue(py, bounds.minY, bounds.maxY),
-  ];
+  return [clampValue(px, bounds.minX, bounds.maxX), clampValue(py, bounds.minY, bounds.maxY)];
 }
 
 /** Chemin SVG polyligne — la forme stockée dans `path_data`. */
@@ -233,58 +230,8 @@ export function samePath(a: readonly Point[], b: readonly Point[]): boolean {
 }
 
 /**
- * Écart absolu moyen entre une prédiction et la courbe réelle, en % (README §7.3).
- * Les deux séries sont ré-échantillonnées sur les jours communs par
- * interpolation linéaire ; renvoie `null` si le recouvrement est vide.
+ * `meanAbsoluteGap` et `interpolateY` vivent dans le juge partagé avec le
+ * serveur (`supabase/functions/_shared/oracleJudge.ts`) : une justesse écrite
+ * en base et une justesse lue à l'écran sortent du même code.
  */
-export function meanAbsoluteGap(
-  prediction: readonly PricePoint[],
-  actual: readonly PricePoint[],
-): number | null {
-  if (prediction.length < 2 || actual.length < 2) return null;
-
-  const from = Math.max(prediction[0]![0], actual[0]![0]);
-  const to = Math.min(prediction[prediction.length - 1]![0], actual[actual.length - 1]![0]);
-  if (!(to > from)) return null;
-
-  const SAMPLES = 64;
-  let total = 0;
-  let counted = 0;
-
-  for (let i = 0; i <= SAMPLES; i++) {
-    const at = from + ((to - from) * i) / SAMPLES;
-    const predicted = interpolateY(prediction, at);
-    const real = interpolateY(actual, at);
-    if (real === 0) continue;
-    total += Math.abs((predicted - real) / real) * 100;
-    counted += 1;
-  }
-
-  return counted === 0 ? null : total / counted;
-}
-
-/**
- * Seconde composante de la polyligne à la première demandée.
- *
- * Générique aux deux espaces : une ordonnée de toile pour des `Point`, un prix
- * pour des `PricePoint`. C'est la même interpolation, et la dupliquer ferait
- * diverger deux copies au premier correctif.
- */
-export function interpolateY(points: readonly (readonly [number, number])[], atX: number): number {
-  const first = points[0]!;
-  const last = points[points.length - 1]!;
-  if (atX <= first[0]) return first[1];
-  if (atX >= last[0]) return last[1];
-
-  for (let i = 1; i < points.length; i++) {
-    const a = points[i - 1]!;
-    const b = points[i]!;
-    if (atX <= b[0]) {
-      const span = b[0] - a[0];
-      if (span === 0) return b[1];
-      const t = (atX - a[0]) / span;
-      return a[1] + (b[1] - a[1]) * t;
-    }
-  }
-  return last[1];
-}
+export { interpolateY, meanAbsoluteGap } from '../../supabase/functions/_shared/oracleJudge';

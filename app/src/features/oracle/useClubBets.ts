@@ -4,7 +4,8 @@ import { useAppRefresh } from '@/hooks/useAppRefresh';
 import { describeError, supabase } from '@/lib/supabase';
 import { MOCK_BETS } from '@/mocks/oracle';
 import type { Member } from '@/types/domain';
-import { BET_COLUMNS, betFromRow, resolvedBets, type Bet, type BetRow } from './betting';
+import { resolvedBets, type Bet } from './betting';
+import { selectBets } from './betsSource';
 import { useJudgedHistory } from './useJudgedHistory';
 import type { BetView } from './useOracle';
 
@@ -41,25 +42,17 @@ export function useClubBets(membersById: Map<string, Member>, revision = 0): Clu
     const controller = new AbortController();
 
     (async () => {
-      const { data, error: cause } = await client
-        .from('predictions')
-        .select(BET_COLUMNS)
-        .order('opened_at')
-        .abortSignal(controller.signal);
+      const { bets: loaded, error: cause } = await selectBets(client, controller.signal);
 
       if (controller.signal.aborted) return;
       setNow(Date.now());
       // Une relecture qui échoue garde les paris affichés.
-      if (cause) {
+      if (cause || !loaded) {
         if (!loadedOnce.current) setError(describeError(cause));
       } else {
         loadedOnce.current = true;
         setError(null);
-        setBets(
-          (data ?? [])
-            .map((row) => betFromRow(row as BetRow))
-            .filter((bet): bet is Bet => bet !== null),
-        );
+        setBets(loaded);
       }
       setLoading(false);
     })();

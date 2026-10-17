@@ -40,6 +40,13 @@ export interface Bet {
   /** `[jour depuis l'ouverture, prix]`. */
   path: PricePoint[];
   hash: string | null;
+  /**
+   * Le verdict du serveur (`judge-oracle`), en %, au centième — `null` tant
+   * qu'il n'a pas jugé, ou s'il a jugé le pari sans justesse possible.
+   */
+  accuracy: number | null;
+  /** Quand le serveur l'a jugé. `null` : pas encore jugé. */
+  judgedAt: number | null;
 }
 
 export function phaseOfBet(bet: Bet, now: number): BetPhase {
@@ -171,10 +178,21 @@ export interface BetRow {
   resolves_at: string;
   path_data: unknown;
   hash: string | null;
+  /** Absentes d'une base qui n'a pas encore la migration des ORBTC. */
+  accuracy?: number | string | null;
+  judged_at?: string | null;
 }
 
 /** Les colonnes à demander pour construire un `Bet`. */
 export const BET_COLUMNS =
+  'id, user_id, horizon, opened_at, locked_at, resolves_at, path_data, hash, accuracy, judged_at';
+
+/**
+ * Les mêmes, sans le verdict : pour une base pas encore migrée
+ * (`20261018090000_orbtc`). L'app peut être publiée avant que la migration
+ * soit appliquée — l'Oracle ne doit pas tomber pour autant.
+ */
+export const LEGACY_BET_COLUMNS =
   'id, user_id, horizon, opened_at, locked_at, resolves_at, path_data, hash';
 
 function isPricePoint(value: unknown): value is PricePoint {
@@ -210,7 +228,16 @@ export function betFromRow(row: BetRow): Bet | null {
     resolvesAt,
     path: Array.isArray(row.path_data) ? row.path_data.filter(isPricePoint) : [],
     hash: row.hash,
+    accuracy: verdictOf(row.accuracy),
+    judgedAt: row.judged_at ? Date.parse(row.judged_at) || null : null,
   };
+}
+
+/** `numeric` arrive en nombre ou en chaîne selon le client : on lit les deux. */
+function verdictOf(value: BetRow['accuracy']): number | null {
+  if (value === null || value === undefined) return null;
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) ? n : null;
 }
 
 /** La base refuse au-delà (`is_valid_price_path`). */

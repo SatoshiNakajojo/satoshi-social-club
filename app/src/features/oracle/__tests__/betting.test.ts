@@ -46,6 +46,8 @@ const bet = (id: string, userId: string, horizon: HorizonKey, openedAt: number):
       [horizon === '1w' ? 7 : 90, 120_000],
     ],
     hash: null,
+    accuracy: null,
+    judgedAt: null,
   };
 };
 

@@ -155,8 +155,26 @@ export type PredictionRow = {
   locked_at: string;
   resolves_at: string;
   hash: string | null;
+  /** Verdict du serveur (`judge-oracle`), en %, au centième. Écrit par lui seul. */
+  accuracy: number | null;
+  judged_at: string | null;
+  judge_attempts: number;
   created_at: string;
   updated_at: string;
+};
+
+/** Les ORBTC : la genèse et l'offre. Une seule ligne. */
+export type OrbtcConfigRow = {
+  id: boolean;
+  genesis_at: string;
+  supply: number;
+};
+
+/** La part d'ORBTC reçue par un membre à la genèse. Écrite par la base. */
+export type OrbtcAccountRow = {
+  user_id: string;
+  genesis_share: number;
+  created_at: string;
 };
 
 /** Un appareil abonné aux notifications. Écrit par deux fonctions, jamais directement. */
@@ -209,6 +227,8 @@ export type Database = {
       entry_waivers: Table<EntryWaiverRow>;
       event_declines: Table<EventDeclineRow>;
       predictions: Table<PredictionRow>;
+      orbtc_config: Table<OrbtcConfigRow>;
+      orbtc_accounts: Table<OrbtcAccountRow>;
       push_subscriptions: Table<PushSubscriptionRow>;
       notification_prefs: Table<NotificationPrefsRow>;
     };
@@ -229,6 +249,7 @@ export type Database = {
         Returns: undefined;
       };
       unregister_push_subscription: { Args: { p_endpoint: string }; Returns: undefined };
+      orbtc_ensure_accounts: { Args: Record<string, never>; Returns: undefined };
     };
     Enums: {
       asset_class: AssetClassRow;

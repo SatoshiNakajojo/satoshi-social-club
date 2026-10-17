@@ -1432,6 +1432,167 @@ begin
   delete from public.event_attendees where event_id = ev and user_id = alex;
 end $$;
 
+-- ============================================================================
+-- ORBTC : genèse, manches, portefeuilles, mise refusée, verdict protégé
+--
+-- Le même scénario que `src/features/oracle/__tests__/orbtc.test.ts` : la base
+-- et l'app doivent arriver aux mêmes chiffres.
+-- ============================================================================
+
+do $$
+declare
+  john  constant uuid := 'aaaaaaaa-0000-4000-8000-000000000001';
+  alex  constant uuid := 'aaaaaaaa-0000-4000-8000-000000000002';
+  marco constant uuid := 'aaaaaaaa-0000-4000-8000-000000000003';
+  week  timestamptz;
+  pj uuid; pa uuid; pm uuid; lone uuid; late uuid; yj uuid;
+  n bigint;
+  failed boolean;
+  status text;
+  verdict numeric;
+begin
+  delete from public.predictions;
+  delete from public.orbtc_accounts;
+
+  -- 1. Avant la genèse : on parie, mais personne n'a encore de part.
+  update public.orbtc_config set genesis_at = now() + interval '1 day';
+  insert into public.predictions (user_id, horizon, path_data)
+  values (john, '1w', '[[0,110000],[7,120000]]'::jsonb);
+  perform public.orbtc_ensure_accounts();
+  select count(*) into n from public.orbtc_accounts;
+  assert n = 0, 'avant la genèse, aucune part n''est distribuée';
+  delete from public.predictions;
+  raise notice 'ok · orbtc : rien ne bouge avant la genèse';
+
+  -- 2. La genèse : l'offre en parts égales, entre les membres présents.
+  update public.orbtc_config set genesis_at = now() - interval '60 days';
+  insert into auth.users (id) values (marco);
+  insert into public.profiles (id, display_name, initials, color)
+  values (marco, 'Marco', 'MC', '#8C7BA8');
+  perform public.orbtc_ensure_accounts();
+  select count(*) into n from public.orbtc_accounts;
+  assert n = 3, 'trois membres, trois parts';
+  select sum(genesis_share) into n from public.orbtc_accounts;
+  assert n = 21000000, 'l''offre entière est distribuée';
+  select count(distinct genesis_share) into n from public.orbtc_accounts;
+  assert n = 1, 'les parts sont égales';
+  raise notice 'ok · orbtc : la genèse partage l''offre en parts égales';
+
+  -- 3. Une manche d'une semaine, close et jugée : le plus juste prend le pot.
+  insert into public.predictions (user_id, horizon, path_data)
+  values (john, '1w', '[[0,110000],[7,120000]]'::jsonb) returning id into pj;
+  insert into public.predictions (user_id, horizon, path_data)
+  values (alex, '1w', '[[0,110000],[7,100000]]'::jsonb) returning id into pa;
+  insert into public.predictions (user_id, horizon, path_data)
+  values (marco, '1w', '[[0,110000],[7,90000]]'::jsonb) returning id into pm;
+
+  week := public.orbtc_manche_start('1w', now() - interval '30 days') + interval '9 hours';
+  alter table public.predictions disable trigger predictions_guard_trigger;
+  update public.predictions
+     set opened_at   = week + (case user_id when john then 0 when alex then 1 else 2 end) * interval '1 day',
+         locked_at   = week + (case user_id when john then 1 when alex then 2 else 3 end) * interval '1 day',
+         resolves_at = week + (case user_id when john then 7 when alex then 8 else 9 end) * interval '1 day',
+         accuracy    = case user_id when john then 91 when alex then 84 else 60 end,
+         judged_at   = now()
+   where id in (pj, pa, pm);
+  alter table public.predictions enable trigger predictions_guard_trigger;
+
+  select m.status, m.pot into status, n from public.orbtc_manches m where m.horizon = '1w';
+  assert status = 'settled', format('la manche doit être réglée, pas %s', status);
+  assert n = 30000, 'pot = trois mises d''une semaine';
+  select payout into n from public.orbtc_results where id = pj;
+  assert n = 30000, 'le plus juste emporte tout le pot';
+  select total into n from public.orbtc_holdings where user_id = john;
+  assert n = 7020000, format('John : 7 000 000 + 20 000, pas %s', n);
+  select total into n from public.orbtc_holdings where user_id = alex;
+  assert n = 6990000, 'Alex perd sa mise';
+  select sum(total) into n from public.orbtc_holdings;
+  assert n = 21000000, 'l''offre se conserve';
+  raise notice 'ok · orbtc : le tracé le plus juste emporte le pot, l''offre se conserve';
+
+  -- 4. Une mise en jeu n'est plus disponible, mais reste comptée chez son joueur.
+  insert into public.predictions (user_id, horizon, path_data)
+  values (john, '12m', '[[0,110000],[365,200000]]'::jsonb) returning id into yj;
+  select in_play, total into n, verdict from public.orbtc_holdings where user_id = john;
+  assert n = 40000, 'la mise d''un an est engagée';
+  assert verdict = 7020000, 'le total ne bouge pas tant que la manche court';
+  select m.status into status from public.orbtc_manches m where m.horizon = '12m';
+  assert status = 'open', 'la manche de l''année est ouverte';
+  raise notice 'ok · orbtc : une mise engagée n''est plus disponible';
+
+  -- 5. Seul dans sa manche : la mise revient. Pas encore jugé : on attend.
+  insert into public.predictions (user_id, horizon, path_data)
+  values (alex, '1m', '[[0,110000],[30,120000]]'::jsonb) returning id into lone;
+  insert into public.predictions (user_id, horizon, path_data)
+  values (john, '2w', '[[0,110000],[14,120000]]'::jsonb) returning id into late;
+  insert into public.predictions (user_id, horizon, path_data)
+  values (marco, '2w', '[[0,110000],[14,100000]]'::jsonb) returning id into pm;
+  alter table public.predictions disable trigger predictions_guard_trigger;
+  update public.predictions
+     set opened_at   = now() - interval '50 days',
+         locked_at   = now() - interval '48 days',
+         resolves_at = now() - interval '20 days',
+         accuracy = 70, judged_at = now()
+   where id = lone;
+  update public.predictions
+     set opened_at   = public.orbtc_manche_start('2w', now() - interval '40 days') + interval '1 hour',
+         locked_at   = public.orbtc_manche_start('2w', now() - interval '40 days') + interval '2 hours',
+         resolves_at = public.orbtc_manche_start('2w', now() - interval '40 days') + interval '15 days',
+         accuracy = case when id = late then 80 end,
+         judged_at = case when id = late then now() end
+   where id in (late, pm);
+  alter table public.predictions enable trigger predictions_guard_trigger;
+
+  select m.status into status from public.orbtc_manches m where m.horizon = '1m';
+  assert status = 'refunded', format('seul : remboursé, pas %s', status);
+  select payout into n from public.orbtc_results where id = lone;
+  assert n = 15000, 'la mise revient entière';
+  select m.status into status from public.orbtc_manches m where m.horizon = '2w';
+  assert status = 'pending', 'un pari pas encore jugé met la manche en attente';
+  select in_play into n from public.orbtc_holdings where user_id = marco;
+  assert n = 12500, 'en attente du verdict, la mise reste engagée';
+  raise notice 'ok · orbtc : seul, on récupère sa mise ; sans verdict, on attend';
+
+  -- 6. Plus de quoi miser : le pari est refusé.
+  update public.orbtc_accounts set genesis_share = 5000 where user_id = alex;
+  failed := false;
+  begin
+    insert into public.predictions (user_id, horizon, path_data)
+    values (alex, '1w', '[[0,110000],[7,120000]]'::jsonb);
+  exception when check_violation then failed := true;
+  end;
+  assert failed, 'un pari sans ORBTC pour la mise doit être refusé';
+  update public.orbtc_accounts set genesis_share = 7000000 where user_id = alex;
+  raise notice 'ok · orbtc : faute d''ORBTC, le pari est refusé';
+
+  -- 7. Un membre n'écrit pas son propre verdict.
+  set local role authenticated;
+  update public.predictions
+     set accuracy = 100, judged_at = now(), path_data = '[[0,110000],[365,210000]]'::jsonb
+   where id = yj;
+  get diagnostics n = row_count;
+  reset role;
+  assert n = 1, 'le membre modifie bien son pari révisable';
+  select accuracy into verdict from public.predictions where id = yj;
+  assert verdict is null, 'le verdict d''un membre est ignoré';
+
+  set local role authenticated;
+  select count(*) into n from public.orbtc_holdings;
+  reset role;
+  assert n = 3, 'les membres lisent les portefeuilles';
+  raise notice 'ok · orbtc : le verdict vient du serveur, les soldes se lisent';
+
+  -- 8. Le juge : sans coffre-fort configuré, aucun secret n'ouvre la porte.
+  assert not public.judge_secret_ok('n''importe quoi'), 'sans configuration, aucun appel accepté';
+  assert not public.judge_secret_ok(null), 'un secret absent est refusé';
+  raise notice 'ok · orbtc : le juge refuse tout tant qu''il n''est pas configuré';
+
+  delete from public.predictions;
+  delete from public.orbtc_accounts;
+  delete from public.profiles where id = marco;
+  delete from auth.users where id = marco;
+end $$;
+
 rollback;
 
 \echo 'Tous les tests de schéma sont passés.'

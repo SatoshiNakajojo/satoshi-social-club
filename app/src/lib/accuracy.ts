@@ -19,33 +19,9 @@
  *     la moitié du prix. En dessous, la nuance n'intéresse plus personne.
  */
 
-import { meanAbsoluteGap, type PricePoint } from './chart';
-
-/** En dessous, la précision d'un tracé au doigt n'a plus de sens. */
-export const PERFECT = 100;
-
-/**
- * La justesse d'un tracé sur la portion déjà écoulée.
- *
- * Les deux courbes sont en **prix** (`[jour, dollars]`), pas en coordonnées de
- * toile. Le compilateur ne distingue pas les deux — ce sont deux paires de
- * nombres — et c'est précisément pourquoi la signature le dit.
- *
- * `null` tant qu'il n'y a rien à comparer : un tracé de moins de deux points,
- * ou un cours réel qui n'a pas encore rejoint le début du tracé. Renvoyer zéro
- * dans ce cas se lirait comme « vous vous trompez complètement », alors qu'on
- * ne sait simplement pas encore.
- */
-export function accuracyPercent(
-  prediction: readonly PricePoint[],
-  actual: readonly PricePoint[],
-): number | null {
-  const error = meanAbsoluteGap(prediction, actual);
-  if (error === null) return null;
-  // Borné en bas : une erreur de 300 % donnerait -200, ce qui n'est pas une
-  // justesse. Borné en haut par construction, l'erreur n'étant jamais négative.
-  return Math.max(0, Math.min(PERFECT, PERFECT - error));
-}
+// Le calcul vit dans le juge partagé avec le serveur : l'écran et la base ne
+// peuvent pas diverger d'un point.
+export { PERFECT, accuracyPercent } from '../../supabase/functions/_shared/oracleJudge';
 
 /**
  * Le qualificatif qui accompagne le chiffre.

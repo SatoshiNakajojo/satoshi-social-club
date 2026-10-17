@@ -25,6 +25,12 @@ const DAY = 86_400_000;
 const TODAY = Math.floor(Date.now() / DAY) * DAY;
 const ANCHOR = TODAY - 34 * DAY;
 
+/**
+ * La genèse des ORBTC dans le monde fictif : deux mois avant aujourd'hui, pour
+ * que des manches aient déjà été réglées et que les portefeuilles aient bougé.
+ */
+export const MOCK_ORBTC_GENESIS = TODAY - 60 * DAY;
+
 /** Le cours fictif du jour : celui du bandeau, pour que les deux se répondent. */
 const SPOT_TODAY = 120_911;
 
@@ -86,6 +92,9 @@ function mockBet(userId: string, horizon: HorizonKey, openedAt: number, drift: n
     // Un pari verrouillé a son empreinte ; les autres aussi, puisqu'elle suit
     // le tracé — la base la recalcule à chaque écriture.
     hash: ['8F2A', '3C71', 'B04E', '19DD', '7A5F', 'E2C8', '5B90', 'D4A6'][sequence % 8]!,
+    // Sans serveur, personne ne juge : l'app juge elle-même, en mode démo.
+    accuracy: null,
+    judgedAt: null,
   };
 }
 
